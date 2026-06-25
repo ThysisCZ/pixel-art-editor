@@ -9,7 +9,7 @@
 #define CELL_COUNT CANVAS_WIDTH *CANVAS_HEIGHT
 #define COLOR_COUNT 21
 #define COLOR_SIZE 75
-#define MAX_UNDO_STROKES 1000
+#define MAX_STROKES 1000
 #define MAX_STROKE_CELLS CELL_COUNT
 
 Color colors[COLOR_COUNT] = {DARKGRAY,
@@ -50,13 +50,23 @@ typedef struct
     Color prev_colors[MAX_STROKE_CELLS];
 } UndoStroke;
 
-UndoStroke undo_strokes[MAX_UNDO_STROKES];
-int undo_stroke_count = 0;
+typedef struct
+{
+    int cell_count;
+    int cells[MAX_STROKE_CELLS];
+    Color next_colors[MAX_STROKE_CELLS];
+} RedoStroke;
+
+UndoStroke undo_strokes[MAX_STROKES];
+RedoStroke redo_strokes[MAX_STROKES];
+int stroke_count = 0;
+int strokes_total = 0;
 
 bool drawing_stroke = false;
 int current_stroke_cell_count = 0;
 int current_stroke_cells[MAX_STROKE_CELLS];
 Color current_stroke_prev_colors[MAX_STROKE_CELLS];
+Color current_stroke_next_colors[MAX_STROKE_CELLS];
 
 void draw_canvas(Pixel *pixels)
 {
@@ -86,6 +96,7 @@ void draw_palette()
         float pos_x = x_offset + col * (COLOR_SIZE + CELL_SIZE);
         float pos_y = y_offset + row * (COLOR_SIZE + CELL_SIZE);
 
+        // Draw different selection border based on selected color
         if (i == select_index)
         {
             DrawRectangle(pos_x, pos_y, COLOR_SIZE, COLOR_SIZE, BLACK);
@@ -151,6 +162,7 @@ void pick_color()
         {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
             {
+                // Handle color selection and deselection
                 if (i != select_index)
                 {
                     current_color = colors[i];
@@ -242,28 +254,37 @@ void draw_pixel(Pixel *pixels)
 
         if (current_cell_index != -1 && !already_in_current_stroke(current_cell_index))
         {
+            // Store stroke cell indices and their colors before drawing
             current_stroke_cells[current_stroke_cell_count] = current_cell_index;
             current_stroke_prev_colors[current_stroke_cell_count] = pixels[current_cell_index].color;
+            current_stroke_next_colors[current_stroke_cell_count] = current_color;
             current_stroke_cell_count++;
 
             pixels[current_cell_index].color = current_color;
         }
     }
 
+    // Save information about the drawn stroke
     if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT))
     {
         if (current_stroke_cell_count > 0)
         {
-            if (undo_stroke_count < MAX_UNDO_STROKES)
-            {
-                UndoStroke *stroke = &undo_strokes[undo_stroke_count++];
-                stroke->cell_count = current_stroke_cell_count;
+            stroke_count++;
+            strokes_total++;
 
-                for (int i = 0; i < current_stroke_cell_count; i++)
-                {
-                    stroke->cells[i] = current_stroke_cells[i];
-                    stroke->prev_colors[i] = current_stroke_prev_colors[i];
-                }
+            UndoStroke *undo_stroke = &undo_strokes[--stroke_count];
+            undo_stroke->cell_count = current_stroke_cell_count;
+
+            RedoStroke *redo_stroke = &redo_strokes[stroke_count++];
+            redo_stroke->cell_count = current_stroke_cell_count;
+
+            for (int i = 0; i < current_stroke_cell_count; i++)
+            {
+                undo_stroke->cells[i] = current_stroke_cells[i];
+                undo_stroke->prev_colors[i] = current_stroke_prev_colors[i];
+
+                redo_stroke->cells[i] = current_stroke_cells[i];
+                redo_stroke->next_colors[i] = current_stroke_next_colors[i];
             }
         }
 
@@ -287,6 +308,7 @@ void erase_pixel(Pixel *pixels)
         {
             current_stroke_cells[current_stroke_cell_count] = current_cell_index;
             current_stroke_prev_colors[current_stroke_cell_count] = pixels[current_cell_index].color;
+            current_stroke_next_colors[current_stroke_cell_count] = WHITE;
             current_stroke_cell_count++;
 
             pixels[current_cell_index].color = WHITE;
@@ -297,16 +319,22 @@ void erase_pixel(Pixel *pixels)
     {
         if (current_stroke_cell_count > 0)
         {
-            if (undo_stroke_count < MAX_UNDO_STROKES)
-            {
-                UndoStroke *stroke = &undo_strokes[undo_stroke_count++];
-                stroke->cell_count = current_stroke_cell_count;
+            stroke_count++;
+            strokes_total++;
 
-                for (int i = 0; i < current_stroke_cell_count; i++)
-                {
-                    stroke->cells[i] = current_stroke_cells[i];
-                    stroke->prev_colors[i] = current_stroke_prev_colors[i];
-                }
+            UndoStroke *undo_stroke = &undo_strokes[--stroke_count];
+            undo_stroke->cell_count = current_stroke_cell_count;
+
+            RedoStroke *redo_stroke = &redo_strokes[stroke_count++];
+            redo_stroke->cell_count = current_stroke_cell_count;
+
+            for (int i = 0; i < current_stroke_cell_count; i++)
+            {
+                undo_stroke->cells[i] = current_stroke_cells[i];
+                undo_stroke->prev_colors[i] = current_stroke_prev_colors[i];
+
+                redo_stroke->cells[i] = current_stroke_cells[i];
+                redo_stroke->next_colors[i] = current_stroke_next_colors[i];
             }
         }
 
@@ -316,13 +344,26 @@ void erase_pixel(Pixel *pixels)
 
 void undo(Pixel *pixels)
 {
-    if (IsKeyPressed(KEY_Y) && undo_stroke_count > 0)
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Y) && stroke_count > 0)
     {
-        UndoStroke *stroke = &undo_strokes[--undo_stroke_count];
+        UndoStroke *stroke = &undo_strokes[--stroke_count];
 
         for (int i = 0; i < stroke->cell_count; i++)
         {
             pixels[stroke->cells[i]].color = stroke->prev_colors[i];
+        }
+    }
+}
+
+void redo(Pixel *pixels)
+{
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Z) && stroke_count < strokes_total)
+    {
+        RedoStroke *stroke = &redo_strokes[stroke_count++];
+
+        for (int i = 0; i < stroke->cell_count; i++)
+        {
+            pixels[stroke->cells[i]].color = stroke->next_colors[i];
         }
     }
 }
@@ -366,6 +407,7 @@ int main()
         erase_pixel(&pixels[0]);
 
         undo(&pixels[0]);
+        redo(&pixels[0]);
 
         EndDrawing();
     }
