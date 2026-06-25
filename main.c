@@ -34,7 +34,7 @@ Color colors[COLOR_COUNT] = {DARKGRAY,
                              PURPLE,
                              BEIGE};
 Color current_color;
-int select_index = -1;
+int select_index = -1; // index of current color
 
 typedef struct
 {
@@ -53,7 +53,7 @@ typedef struct
 UndoStroke undo_strokes[MAX_UNDO_STROKES];
 int undo_stroke_count = 0;
 
-int drawing_stroke = 0;
+bool drawing_stroke = false;
 int current_stroke_cell_count = 0;
 int current_stroke_cells[MAX_STROKE_CELLS];
 Color current_stroke_prev_colors[MAX_STROKE_CELLS];
@@ -168,8 +168,8 @@ void pick_color()
 void cell_hover()
 {
     Vector2 mouse = GetMousePosition();
-    int mx = mouse.x;
-    int my = mouse.y;
+    float mx = mouse.x;
+    float my = mouse.y;
 
     for (int i = 0; i < CELL_COUNT; i++)
     {
@@ -191,11 +191,11 @@ void cell_hover()
     }
 }
 
-int get_hovered_cell_index(void)
+static int get_current_cell_index()
 {
     Vector2 mouse = GetMousePosition();
-    int mx = (int)mouse.x;
-    int my = (int)mouse.y;
+    float mx = mouse.x;
+    float my = mouse.y;
 
     for (int i = 0; i < CELL_COUNT; i++)
     {
@@ -215,43 +215,38 @@ int get_hovered_cell_index(void)
     return -1;
 }
 
-int already_in_current_stroke(int idx)
+static bool already_in_current_stroke(int current_cell_index)
 {
     for (int i = 0; i < current_stroke_cell_count; i++)
     {
-        if (current_stroke_cells[i] == idx)
+        if (current_stroke_cells[i] == current_cell_index)
         {
-            return 1;
+            return true;
         }
     }
 
-    return 0;
+    return false;
 }
 
 void draw_pixel(Pixel *pixels)
 {
-    if (select_index == -1)
+    if (select_index != -1 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
     {
-        return;
-    }
-
-    if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
-    {
-        drawing_stroke = 1;
+        drawing_stroke = true;
         current_stroke_cell_count = 0;
     }
 
     if (drawing_stroke && IsMouseButtonDown(MOUSE_BUTTON_LEFT))
     {
-        int idx = get_hovered_cell_index();
+        int current_cell_index = get_current_cell_index();
 
-        if (idx != -1 && !already_in_current_stroke(idx))
+        if (current_cell_index != -1 && !already_in_current_stroke(current_cell_index))
         {
-            current_stroke_cells[current_stroke_cell_count] = idx;
-            current_stroke_prev_colors[current_stroke_cell_count] = pixels[idx].color;
+            current_stroke_cells[current_stroke_cell_count] = current_cell_index;
+            current_stroke_prev_colors[current_stroke_cell_count] = pixels[current_cell_index].color;
             current_stroke_cell_count++;
 
-            pixels[idx].color = current_color;
+            pixels[current_cell_index].color = current_color;
         }
     }
 
@@ -261,45 +256,61 @@ void draw_pixel(Pixel *pixels)
         {
             if (undo_stroke_count < MAX_UNDO_STROKES)
             {
-                UndoStroke *s = &undo_strokes[undo_stroke_count++];
-                s->cell_count = current_stroke_cell_count;
+                UndoStroke *stroke = &undo_strokes[undo_stroke_count++];
+                stroke->cell_count = current_stroke_cell_count;
 
                 for (int i = 0; i < current_stroke_cell_count; i++)
                 {
-                    s->cells[i] = current_stroke_cells[i];
-                    s->prev_colors[i] = current_stroke_prev_colors[i];
+                    stroke->cells[i] = current_stroke_cells[i];
+                    stroke->prev_colors[i] = current_stroke_prev_colors[i];
                 }
             }
         }
 
-        drawing_stroke = 0;
+        drawing_stroke = false;
     }
 }
 
 void erase_pixel(Pixel *pixels)
 {
-    Vector2 mouse = GetMousePosition();
-    int mx = mouse.x;
-    int my = mouse.y;
-
-    for (int i = 0; i < CELL_COUNT; i++)
+    if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
     {
-        int col = i % CANVAS_WIDTH;
-        int row = i / CANVAS_WIDTH;
+        drawing_stroke = true;
+        current_stroke_cell_count = 0;
+    }
 
-        float cx = CELL_SIZE + col * CELL_SIZE;
-        float cy = CELL_SIZE + row * CELL_SIZE;
+    if (drawing_stroke && IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+    {
+        int current_cell_index = get_current_cell_index();
 
-        if (mx >= cx && mx < cx + CELL_SIZE &&
-            my >= cy && my < cy + CELL_SIZE)
+        if (current_cell_index != -1 && !already_in_current_stroke(current_cell_index))
         {
-            if (select_index != -1 && IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+            current_stroke_cells[current_stroke_cell_count] = current_cell_index;
+            current_stroke_prev_colors[current_stroke_cell_count] = pixels[current_cell_index].color;
+            current_stroke_cell_count++;
+
+            pixels[current_cell_index].color = WHITE;
+        }
+    }
+
+    if (IsMouseButtonReleased(MOUSE_BUTTON_RIGHT))
+    {
+        if (current_stroke_cell_count > 0)
+        {
+            if (undo_stroke_count < MAX_UNDO_STROKES)
             {
-                pixels[i].color = WHITE;
-                DrawRectangle(cx, cy, CELL_SIZE, CELL_SIZE, WHITE);
-                DrawRectangleLines(cx, cy, CELL_SIZE, CELL_SIZE, WHITE);
+                UndoStroke *stroke = &undo_strokes[undo_stroke_count++];
+                stroke->cell_count = current_stroke_cell_count;
+
+                for (int i = 0; i < current_stroke_cell_count; i++)
+                {
+                    stroke->cells[i] = current_stroke_cells[i];
+                    stroke->prev_colors[i] = current_stroke_prev_colors[i];
+                }
             }
         }
+
+        drawing_stroke = false;
     }
 }
 
@@ -307,11 +318,11 @@ void undo(Pixel *pixels)
 {
     if (IsKeyPressed(KEY_Y) && undo_stroke_count > 0)
     {
-        UndoStroke *s = &undo_strokes[--undo_stroke_count];
+        UndoStroke *stroke = &undo_strokes[--undo_stroke_count];
 
-        for (int i = 0; i < s->cell_count; i++)
+        for (int i = 0; i < stroke->cell_count; i++)
         {
-            pixels[s->cells[i]].color = s->prev_colors[i];
+            pixels[stroke->cells[i]].color = stroke->prev_colors[i];
         }
     }
 }
