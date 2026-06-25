@@ -33,8 +33,8 @@ Color colors[COLOR_COUNT] = {DARKGRAY,
                              SKYBLUE,
                              PURPLE,
                              BEIGE};
-Color current_color;
-int select_index = -1; // index of current color
+Color selected_color;
+int select_index = -1; // index of selected color
 
 typedef struct
 {
@@ -60,6 +60,9 @@ int current_stroke_cell_count = 0;
 int current_stroke_cells[MAX_STROKE_CELLS];
 Color current_stroke_prev_colors[MAX_STROKE_CELLS];
 Color current_stroke_next_colors[MAX_STROKE_CELLS];
+
+bool fill_mode = false;
+Color color_before_draw = WHITE;
 
 void draw_canvas(Pixel *pixels)
 {
@@ -93,7 +96,7 @@ void draw_palette()
         if (i == select_index)
         {
             DrawRectangle(pos_x, pos_y, COLOR_SIZE, COLOR_SIZE, BLACK);
-            DrawRectangle(pos_x + CELL_SIZE / 4, pos_y + CELL_SIZE / 4, select_size, select_size, current_color);
+            DrawRectangle(pos_x + CELL_SIZE / 4, pos_y + CELL_SIZE / 4, select_size, select_size, selected_color);
         }
         else
         {
@@ -158,7 +161,7 @@ void pick_color()
                 // Handle color selection and deselection
                 if (i != select_index)
                 {
-                    current_color = colors[i];
+                    selected_color = colors[i];
                     select_index = i;
                 }
                 else
@@ -189,7 +192,7 @@ void cell_hover()
         {
             if (select_index != -1)
             {
-                DrawRectangle(cx, cy, CELL_SIZE, CELL_SIZE, current_color);
+                DrawRectangle(cx, cy, CELL_SIZE, CELL_SIZE, selected_color);
                 DrawRectangleLines(cx, cy, CELL_SIZE, CELL_SIZE, WHITE);
             }
         }
@@ -250,10 +253,11 @@ void draw_pixel(Pixel *pixels)
             // Store stroke cell indices and their colors before drawing
             current_stroke_cells[current_stroke_cell_count] = current_cell_index;
             current_stroke_prev_colors[current_stroke_cell_count] = pixels[current_cell_index].color;
-            current_stroke_next_colors[current_stroke_cell_count] = current_color;
+            current_stroke_next_colors[current_stroke_cell_count] = selected_color;
             current_stroke_cell_count++;
 
-            pixels[current_cell_index].color = current_color;
+            color_before_draw = pixels[current_cell_index].color;
+            pixels[current_cell_index].color = selected_color;
         }
     }
 
@@ -304,6 +308,7 @@ void erase_pixel(Pixel *pixels)
             current_stroke_next_colors[current_stroke_cell_count] = WHITE;
             current_stroke_cell_count++;
 
+            color_before_draw = pixels[current_cell_index].color;
             pixels[current_cell_index].color = WHITE;
         }
     }
@@ -361,6 +366,62 @@ void redo(Pixel *pixels)
     }
 }
 
+static bool colors_equal(Color c1, Color c2)
+{
+    return (c1.r == c2.r &&
+            c1.g == c2.g &&
+            c1.b == c2.b);
+}
+
+void fill(Pixel *pixels)
+{
+    int current_cell_index = get_current_cell_index();
+
+    if (IsKeyPressed(KEY_B))
+    {
+        if (!fill_mode)
+        {
+            fill_mode = true;
+        }
+        else
+        {
+            fill_mode = false;
+        }
+    }
+
+    if (fill_mode && current_cell_index != -1 && select_index != -1)
+    {
+        float pos_x = pixels[current_cell_index].pos_x;
+        float pos_y = pixels[current_cell_index].pos_y;
+
+        DrawRectangle(pos_x, pos_y, CELL_SIZE, CELL_SIZE, BLACK);
+        DrawRectangle(pos_x + CELL_SIZE / 4, pos_y + CELL_SIZE / 4, CELL_SIZE / 2, CELL_SIZE / 2, selected_color);
+        DrawRectangleLines(pos_x, pos_y, CELL_SIZE, CELL_SIZE, WHITE);
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
+        {
+            for (int i = 0; i < CELL_COUNT; i++)
+            {
+                if (colors_equal(pixels[i].color, color_before_draw))
+                {
+                    pixels[i].color = selected_color;
+                }
+            }
+        }
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
+        {
+            for (int i = 0; i < CELL_COUNT; i++)
+            {
+                if (colors_equal(pixels[i].color, color_before_draw))
+                {
+                    pixels[i].color = WHITE;
+                }
+            }
+        }
+    }
+}
+
 int main()
 {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Pixel Art Editor");
@@ -401,6 +462,8 @@ int main()
 
         undo(&pixels[0]);
         redo(&pixels[0]);
+
+        fill(&pixels[0]);
 
         EndDrawing();
     }
