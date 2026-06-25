@@ -48,17 +48,10 @@ typedef struct
     int cell_count;
     int cells[MAX_STROKE_CELLS];
     Color prev_colors[MAX_STROKE_CELLS];
-} UndoStroke;
-
-typedef struct
-{
-    int cell_count;
-    int cells[MAX_STROKE_CELLS];
     Color next_colors[MAX_STROKE_CELLS];
-} RedoStroke;
+} Stroke;
 
-UndoStroke undo_strokes[MAX_STROKES];
-RedoStroke redo_strokes[MAX_STROKES];
+Stroke strokes[MAX_STROKES];
 int stroke_count = 0;
 int strokes_total = 0;
 
@@ -272,10 +265,10 @@ void draw_pixel(Pixel *pixels)
             stroke_count++;
             strokes_total++;
 
-            UndoStroke *undo_stroke = &undo_strokes[--stroke_count];
+            Stroke *undo_stroke = &strokes[--stroke_count];
             undo_stroke->cell_count = current_stroke_cell_count;
 
-            RedoStroke *redo_stroke = &redo_strokes[stroke_count++];
+            Stroke *redo_stroke = &strokes[stroke_count++];
             redo_stroke->cell_count = current_stroke_cell_count;
 
             for (int i = 0; i < current_stroke_cell_count; i++)
@@ -322,10 +315,10 @@ void erase_pixel(Pixel *pixels)
             stroke_count++;
             strokes_total++;
 
-            UndoStroke *undo_stroke = &undo_strokes[--stroke_count];
+            Stroke *undo_stroke = &strokes[--stroke_count];
             undo_stroke->cell_count = current_stroke_cell_count;
 
-            RedoStroke *redo_stroke = &redo_strokes[stroke_count++];
+            Stroke *redo_stroke = &strokes[stroke_count++];
             redo_stroke->cell_count = current_stroke_cell_count;
 
             for (int i = 0; i < current_stroke_cell_count; i++)
@@ -346,7 +339,7 @@ void undo(Pixel *pixels)
 {
     if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Y) && stroke_count > 0)
     {
-        UndoStroke *stroke = &undo_strokes[--stroke_count];
+        Stroke *stroke = &strokes[--stroke_count];
 
         for (int i = 0; i < stroke->cell_count; i++)
         {
@@ -359,7 +352,7 @@ void redo(Pixel *pixels)
 {
     if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Z) && stroke_count < strokes_total)
     {
-        RedoStroke *stroke = &redo_strokes[stroke_count++];
+        Stroke *stroke = &strokes[stroke_count++];
 
         for (int i = 0; i < stroke->cell_count; i++)
         {
