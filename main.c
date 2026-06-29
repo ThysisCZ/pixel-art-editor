@@ -12,6 +12,8 @@
 #define COLOR_SIZE 75
 #define MAX_STROKES 1000
 #define MAX_DEAD_ENDS (12 * CELL_COUNT)
+#define EXPORT_WIDTH (CANVAS_WIDTH * 10)
+#define EXPORT_HEIGHT (CANVAS_HEIGHT * 10)
 
 Color colors[COLOR_COUNT] = {DARKGRAY,
                              MAROON,
@@ -136,7 +138,7 @@ void draw_info()
     float pos_x = x_offset;
     float pos_y = SCREEN_HEIGHT - y_offset;
 
-    const char *text = "Undo - Ctrl+Z | Redo - Ctrl+Y | Fill - G | Eyedropper - I | Grid - Ctrl+`";
+    const char *text = "Undo/Redo - Ctrl+Z/Y | Fill - G | Pick - I | Grid - Ctrl+` | Save - Ctrl+S";
     int font_size = 20;
 
     DrawText(text, pos_x, pos_y, font_size, WHITE);
@@ -751,6 +753,41 @@ void eyedrop(Pixel *pixels)
     }
 }
 
+void export_image(Pixel *pixels)
+{
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S))
+    {
+        // Allocate dynamic heap memory
+        Color *image_data = (Color *)RL_MALLOC(CELL_COUNT * sizeof(Color));
+
+        if (image_data == NULL)
+            return;
+
+        for (int i = 0; i < CELL_COUNT; i++)
+        {
+            int col = i % CANVAS_WIDTH;
+            int row = i / CANVAS_WIDTH;
+
+            // Map 2D layout to 1D allocation
+            image_data[row * CANVAS_WIDTH + col] = pixels[i].color;
+        }
+
+        Image img = {
+            .data = image_data,
+            .width = CANVAS_WIDTH,
+            .height = CANVAS_HEIGHT,
+            .mipmaps = 1,
+            .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+
+        ImageResizeNN(&img, EXPORT_WIDTH, EXPORT_HEIGHT);
+
+        ExportImage(img, "pixel_art.png");
+
+        // Unload resized image allocated data
+        UnloadImage(img);
+    }
+}
+
 int main()
 {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Pixel Art Editor");
@@ -795,8 +832,12 @@ int main()
         fill(&pixels[0]);
         eyedrop(&pixels[0]);
 
+        export_image(&pixels[0]);
+
         EndDrawing();
     }
+
+    CloseWindow();
 
     return 0;
 }
