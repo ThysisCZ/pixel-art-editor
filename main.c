@@ -63,12 +63,9 @@ Color current_stroke_prev_colors[CELL_COUNT];
 Color current_stroke_next_colors[CELL_COUNT];
 
 bool fill_mode = false;
-bool fill_active = false;
 Color fill_source_color = WHITE;
 int fill_current_index = -1;
 int dead_end_count = 0;
-int current_fill_cell_count = 0;
-int current_fill_cells[CELL_COUNT];
 
 bool show_grid = false;
 bool pick_mode = false;
@@ -129,6 +126,20 @@ void draw_palette()
             DrawRectangle(pos_x, pos_y, COLOR_SIZE, COLOR_SIZE, colors[i]);
         }
     }
+}
+
+void draw_info()
+{
+    int x_offset = CELL_SIZE / 2;
+    int y_offset = 25;
+
+    float pos_x = x_offset;
+    float pos_y = SCREEN_HEIGHT - y_offset;
+
+    const char *text = "Undo - Ctrl+Z | Redo - Ctrl+Y | Fill - G | Eyedropper - I | Grid - Ctrl+`";
+    int font_size = 20;
+
+    DrawText(text, pos_x, pos_y, font_size, WHITE);
 }
 
 void color_hover()
@@ -459,19 +470,6 @@ static int generate_next_index(int current_index)
     return next_index;
 }
 
-static bool already_in_current_fill(int current_cell_index)
-{
-    for (int i = 0; i < CELL_COUNT; i++)
-    {
-        if (current_fill_cells[i] == current_cell_index)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
 void fill(Pixel *pixels)
 {
     int start_index = get_current_cell_index();
@@ -497,38 +495,27 @@ void fill(Pixel *pixels)
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT))
         {
             fill_source_color = pixels[start_index].color;
-            fill_active = true;
-
             fill_current_index = start_index;
             dead_end_count = 0;
-            current_fill_cell_count = 0;
+
+            drawing_stroke = true;
+            current_stroke_cell_count = 0;
         }
 
         if (IsMouseButtonPressed(MOUSE_BUTTON_RIGHT))
         {
             fill_source_color = pixels[start_index].color;
-            fill_active = true;
-
             fill_current_index = start_index;
             dead_end_count = 0;
-            current_fill_cell_count = 0;
-        }
 
-        if ((IsMouseButtonReleased(MOUSE_BUTTON_LEFT) ||
-             (IsMouseButtonReleased(MOUSE_BUTTON_RIGHT))) &&
-            fill_active)
-        {
-            fill_source_color = WHITE;
-            fill_active = false;
-
-            fill_current_index = -1;
-            dead_end_count = 0;
+            drawing_stroke = true;
+            current_stroke_cell_count = 0;
         }
 
         if (select_index != -1)
         {
             // Fill with palette colors
-            if (fill_active && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !colors_equal(fill_source_color, selected_color))
+            if (drawing_stroke && IsMouseButtonDown(MOUSE_BUTTON_LEFT) && !colors_equal(fill_source_color, selected_color))
             {
                 while (dead_end_count < MAX_DEAD_ENDS)
                 {
@@ -542,9 +529,12 @@ void fill(Pixel *pixels)
 
                     if (colors_equal(pixels[current_index].color, fill_source_color))
                     {
+                        current_stroke_cells[current_stroke_cell_count] = current_index;
+                        current_stroke_prev_colors[current_stroke_cell_count] = pixels[current_index].color;
+                        current_stroke_next_colors[current_stroke_cell_count] = selected_color;
+                        current_stroke_cell_count++;
+
                         pixels[current_index].color = selected_color;
-                        current_fill_cells[current_fill_cell_count] = current_index;
-                        current_fill_cell_count++;
                     }
 
                     if (colors_equal(pixels[next_index].color, fill_source_color))
@@ -564,7 +554,7 @@ void fill(Pixel *pixels)
                         if (colors_equal(pixels[next_index].color, selected_color))
                         {
                             // Stop on outer area with selected color
-                            if (!already_in_current_fill(next_index))
+                            if (!already_in_current_stroke(next_index))
                             {
                                 pixels[next_index].color = selected_color;
                                 dead_end_count = MAX_DEAD_ENDS;
@@ -580,11 +570,37 @@ void fill(Pixel *pixels)
 
                     fill_current_index = current_index;
                 }
+
+                if (current_stroke_cell_count > 0)
+                {
+                    stroke_count++;
+                    strokes_total++;
+
+                    Stroke *undo_stroke = &strokes[--stroke_count];
+                    undo_stroke->cell_count = current_stroke_cell_count;
+
+                    Stroke *redo_stroke = &strokes[stroke_count++];
+                    redo_stroke->cell_count = current_stroke_cell_count;
+
+                    for (int i = 0; i < current_stroke_cell_count; i++)
+                    {
+                        undo_stroke->cells[i] = current_stroke_cells[i];
+                        undo_stroke->prev_colors[i] = current_stroke_prev_colors[i];
+
+                        redo_stroke->cells[i] = current_stroke_cells[i];
+                        redo_stroke->next_colors[i] = current_stroke_next_colors[i];
+                    }
+                }
+
+                drawing_stroke = false;
+                fill_source_color = WHITE;
+                fill_current_index = -1;
+                dead_end_count = 0;
             }
         }
 
         // Erase multiple cells at once
-        if (fill_active && IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && !colors_equal(fill_source_color, WHITE))
+        if (drawing_stroke && IsMouseButtonDown(MOUSE_BUTTON_RIGHT) && !colors_equal(fill_source_color, WHITE))
         {
             while (dead_end_count < MAX_DEAD_ENDS)
             {
@@ -598,9 +614,12 @@ void fill(Pixel *pixels)
 
                 if (colors_equal(pixels[current_index].color, fill_source_color))
                 {
+                    current_stroke_cells[current_stroke_cell_count] = current_index;
+                    current_stroke_prev_colors[current_stroke_cell_count] = pixels[current_index].color;
+                    current_stroke_next_colors[current_stroke_cell_count] = WHITE;
+                    current_stroke_cell_count++;
+
                     pixels[current_index].color = WHITE;
-                    current_fill_cells[current_fill_cell_count] = current_index;
-                    current_fill_cell_count++;
                 }
 
                 if (colors_equal(pixels[next_index].color, fill_source_color))
@@ -619,7 +638,7 @@ void fill(Pixel *pixels)
 
                     if (colors_equal(pixels[next_index].color, WHITE))
                     {
-                        if (!already_in_current_fill(next_index))
+                        if (!already_in_current_stroke(next_index))
                         {
                             pixels[next_index].color = WHITE;
                             dead_end_count = MAX_DEAD_ENDS;
@@ -635,6 +654,32 @@ void fill(Pixel *pixels)
 
                 fill_current_index = current_index;
             }
+
+            if (current_stroke_cell_count > 0)
+            {
+                stroke_count++;
+                strokes_total++;
+
+                Stroke *undo_stroke = &strokes[--stroke_count];
+                undo_stroke->cell_count = current_stroke_cell_count;
+
+                Stroke *redo_stroke = &strokes[stroke_count++];
+                redo_stroke->cell_count = current_stroke_cell_count;
+
+                for (int i = 0; i < current_stroke_cell_count; i++)
+                {
+                    undo_stroke->cells[i] = current_stroke_cells[i];
+                    undo_stroke->prev_colors[i] = current_stroke_prev_colors[i];
+
+                    redo_stroke->cells[i] = current_stroke_cells[i];
+                    redo_stroke->next_colors[i] = current_stroke_next_colors[i];
+                }
+            }
+
+            drawing_stroke = false;
+            fill_source_color = WHITE;
+            fill_current_index = -1;
+            dead_end_count = 0;
         }
 
         Color fill_cursor_color = selected_color;
@@ -731,6 +776,7 @@ int main()
 
         draw_canvas(&pixels[0]);
         draw_palette();
+        draw_info();
 
         color_hover();
         pick_color();
