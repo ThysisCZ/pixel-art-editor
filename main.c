@@ -70,8 +70,24 @@ int dead_end_count = 0;
 int current_fill_cell_count = 0;
 int current_fill_cells[CELL_COUNT];
 
+bool show_grid = false;
+bool pick_mode = false;
+Color pick_source_color;
+
 void draw_canvas(Pixel *pixels)
 {
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_APOSTROPHE))
+    {
+        if (!show_grid)
+        {
+            show_grid = true;
+        }
+        else
+        {
+            show_grid = false;
+        }
+    }
+
     for (int i = 0; i < CELL_COUNT; i++)
     {
         int col = i % CANVAS_WIDTH;
@@ -81,7 +97,11 @@ void draw_canvas(Pixel *pixels)
         float pos_y = CELL_SIZE + row * CELL_SIZE;
 
         DrawRectangle(pos_x, pos_y, CELL_SIZE, CELL_SIZE, pixels[i].color);
-        DrawRectangleLines(pos_x, pos_y, CELL_SIZE, CELL_SIZE, BLACK);
+
+        if (show_grid)
+        {
+            DrawRectangleLines(pos_x, pos_y, CELL_SIZE, CELL_SIZE, BLACK);
+        }
     }
 }
 
@@ -196,20 +216,30 @@ void cell_hover()
         if (mx >= cx && mx < cx + CELL_SIZE &&
             my >= cy && my < cy + CELL_SIZE)
         {
-            if (!fill_mode)
+            if (!fill_mode && !pick_mode)
             {
                 if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
                 {
                     DrawRectangle(cx, cy, CELL_SIZE, CELL_SIZE, WHITE);
-                    DrawRectangleLines(cx, cy, CELL_SIZE, CELL_SIZE, WHITE);
                 }
                 else
                 {
                     if (select_index != -1)
                     {
                         DrawRectangle(cx, cy, CELL_SIZE, CELL_SIZE, selected_color);
-                        DrawRectangleLines(cx, cy, CELL_SIZE, CELL_SIZE, WHITE);
                     }
+                }
+
+                Color cursor_lines_color = BLACK;
+
+                if (show_grid)
+                {
+                    cursor_lines_color = WHITE;
+                }
+
+                if (select_index != -1 || IsMouseButtonDown(MOUSE_BUTTON_RIGHT))
+                {
+                    DrawRectangleLines(cx, cy, CELL_SIZE, CELL_SIZE, cursor_lines_color);
                 }
             }
         }
@@ -449,11 +479,12 @@ void fill(Pixel *pixels)
     float pos_x = pixels[start_index].pos_x;
     float pos_y = pixels[start_index].pos_y;
 
-    if (IsKeyPressed(KEY_B))
+    if (IsKeyPressed(KEY_G))
     {
         if (!fill_mode)
         {
             fill_mode = true;
+            pick_mode = false;
         }
         else
         {
@@ -617,7 +648,60 @@ void fill(Pixel *pixels)
         {
             DrawRectangle(pos_x, pos_y, CELL_SIZE, CELL_SIZE, BLACK);
             DrawRectangle(pos_x + CELL_SIZE / 4, pos_y + CELL_SIZE / 4, CELL_SIZE / 2, CELL_SIZE / 2, fill_cursor_color);
-            DrawRectangleLines(pos_x, pos_y, CELL_SIZE, CELL_SIZE, WHITE);
+        }
+    }
+}
+
+void eyedrop(Pixel *pixels)
+{
+    int current_index = get_current_cell_index();
+
+    float pos_x = pixels[current_index].pos_x;
+    float pos_y = pixels[current_index].pos_y;
+
+    if (IsKeyPressed(KEY_I))
+    {
+        if (!pick_mode)
+        {
+            pick_mode = true;
+            fill_mode = false;
+        }
+        else
+        {
+            pick_mode = false;
+        }
+    }
+
+    if (pick_mode && current_index != -1 && select_index != -1)
+    {
+        pick_source_color = pixels[current_index].color;
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
+            !colors_equal(pick_source_color, WHITE))
+        {
+            selected_color = pick_source_color;
+
+            // Select the picked color in palette
+            for (int i = 0; i < COLOR_COUNT; i++)
+            {
+                if (colors_equal(colors[i], selected_color))
+                {
+                    select_index = i;
+                }
+            }
+        }
+
+        DrawRectangle(pos_x + CELL_SIZE / 4, pos_y + CELL_SIZE / 4, CELL_SIZE / 2, CELL_SIZE / 2, pick_source_color);
+
+        if (!colors_equal(pick_source_color, selected_color))
+        {
+            DrawRectangle(pos_x, pos_y, CELL_SIZE, CELL_SIZE, selected_color);
+            DrawRectangle(pos_x + CELL_SIZE / 4, pos_y + CELL_SIZE / 4, CELL_SIZE / 2, CELL_SIZE / 2, pick_source_color);
+        }
+        else
+        {
+            DrawRectangle(pos_x, pos_y, CELL_SIZE, CELL_SIZE, WHITE);
+            DrawRectangle(pos_x + CELL_SIZE / 4, pos_y + CELL_SIZE / 4, CELL_SIZE / 2, CELL_SIZE / 2, pick_source_color);
         }
     }
 }
@@ -653,7 +737,7 @@ int main()
 
         cell_hover();
 
-        if (!fill_mode)
+        if (!fill_mode && !pick_mode)
         {
             draw_pixel(&pixels[0]);
             erase_pixel(&pixels[0]);
@@ -663,6 +747,7 @@ int main()
         redo(&pixels[0]);
 
         fill(&pixels[0]);
+        eyedrop(&pixels[0]);
 
         EndDrawing();
     }
